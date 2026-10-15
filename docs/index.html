@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Differentiable Plasticity in JAX</title>
+<meta name="description" content="Learning notes: a differentiable J2-plasticity punch-test FEM in JAX, the flow of information from the hardening law to the measured load, and how its derivatives are computed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fcfcfb;--ink:#1a1a18;--ink2:#52514e;--muted:#8a8984;--rule:#e4e3df;--card:#ffffff;--accent:#2a78d6}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--ink:#ecebe7;--ink2:#b7b5ae;--muted:#85837c;--rule:#2e2d2a;--card:#1c1c1a;--accent:#6aa5ec}}
+:root[data-theme="dark"]{--bg:#141413;--ink:#ecebe7;--ink2:#b7b5ae;--muted:#85837c;--rule:#2e2d2a;--card:#1c1c1a;--accent:#6aa5ec}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 "Source Serif 4",Georgia,serif}
+main{max-width:980px;margin:0 auto;padding:48px 16px 80px}
+h1,h2,h3,.meta,.btn,figcaption,table,nav{font-family:Inter,system-ui,sans-serif}
+h1{font-size:2rem;line-height:1.2;margin:0 0 8px}
+h2{font-size:1.15rem;margin:52px 0 10px;padding-top:14px;border-top:1px solid var(--rule)}
+.meta{color:var(--muted);font-size:.9rem;margin-bottom:28px}
+.lede{font-size:1.15rem;color:var(--ink2)}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0}
+.btn{display:inline-block;padding:9px 16px;border:1px solid var(--rule);border-radius:6px;background:var(--card);color:var(--ink);text-decoration:none;font-size:.92rem;font-weight:600}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+figure{margin:22px 0}
+figure img{width:100%;height:auto;border:1px solid var(--rule);border-radius:6px;background:#fff;padding:8px}
+figcaption{font-size:.85rem;color:var(--ink2);margin-top:6px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:700px){.two{grid-template-columns:1fr}}
+a{color:var(--accent)}
+code{font-size:.88em}
+.note{font-size:.9rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>Differentiable plasticity FEM in JAX</h1>
+<div class="meta">Learning notes · Raj Mahat · Georgia Tech</div>
+
+<p class="lede">A mechanical test never measures the hardening law. It measures the law after it has
+passed through the local plastic response, equilibrium with contact, the loading history and the readout.
+These notes build a small, fully differentiable punch-test model in JAX and follow, step by step, how
+information about the law travels to the measured load, and how its derivatives are computed exactly.</p>
+
+<div class="btns">
+  <a class="btn" href="notes.pdf">Read the notes (PDF)</a>
+</div>
+
+<figure><img src="img/fc3_chain.png" alt="Chain from hardening law through local response, equilibrium and contact, history to measured load">
+<figcaption>The test sees the law only after every stage in between.</figcaption></figure>
+
+<h2>1 · J<sub>2</sub> plasticity with combined hardening</h2>
+<p>Voce isotropic hardening grows the elastic domain; Armstrong–Frederick kinematic hardening moves it.
+The backward-Euler return map reduces to one scalar equation for the plastic multiplier, solved inside
+<code>jax.lax.custom_root</code>, so the consistent tangent is a single <code>jax.jacfwd</code>. It matches
+the textbook closed form to round-off.</p>
+<div class="two">
+<figure><img src="img/yield_surfaces.png" alt="Isotropic and kinematic hardening in the deviatoric plane"></figure>
+<figure><img src="img/uniaxial_curves.png" alt="Monotonic and cyclic uniaxial curves"></figure>
+</div>
+<figure><img src="img/fc5_local.png" alt="Return-map Jacobian rows and the local-stress-to-nodal-force chain">
+<figcaption>The local residual and the map from a local stress change to nodal force.</figcaption></figure>
+
+<h2>2 · The forward solve</h2>
+<p>Three residuals are coupled per increment: the local constitutive residual at every Gauss point,
+global equilibrium, and contact. Condensing the local solve gives the consistent tangent
+K = r<sub>U</sub> − r<sub>v</sub> h<sub>v</sub><sup>−1</sup> h<sub>U</sub>, the material's response to nodal motion.</p>
+<figure><img src="img/fc1_forward.png" alt="Forward solve flowchart with residuals and condensed tangent"></figure>
+<figure><img src="img/fc6_solve_readout.png" alt="Kinematics, constrained solve, state update and readout primitives">
+<figcaption>Strain map, constrained solve, back into the state, and the readout.</figcaption></figure>
+<div class="two">
+<figure><img src="img/punch_load.png" alt="Load–depth curves"><figcaption>Punch load for a generic material, and two parameter changes.</figcaption></figure>
+<figure><img src="img/fc4_jax.png" alt="Which JAX tool does which job"><figcaption>Which JAX tool does which job.</figcaption></figure>
+</div>
+<figure><img src="img/punch_fields.png" alt="Deformed plate coloured by plastic strain"></figure>
+
+<h2>3 · How a parameter change travels</h2>
+<p>A parameter enters only through the yield row at the plastic strain reached. It is <em>resisted</em> by
+the local block, <em>redistributed</em> by the same factorized tangent (one extra right-hand side),
+<em>carried</em> to later increments through the committed state, and <em>read out</em> as a load change.</p>
+<figure><img src="img/fc2_sensitivity.png" alt="Sensitivity equations and flow"></figure>
+<figure><img src="img/fc7_recursion.png" alt="Recursion over one increment and its unrolling">
+<figcaption>Every increment injects; the number of Φ boxes on a path is how old that injection is.</figcaption></figure>
+<figure><img src="img/fc8_engines.png" alt="State path and load path inside the operators"></figure>
+<figure><img src="img/fc9_jacobian.png" alt="Factorized Jacobian"></figure>
+<figure><img src="img/punch_sensitivity.png" alt="Forward mode, adjoint, finite differences and hand recursion agree">
+<figcaption>Forward mode, adjoint, finite differences and the hand-written recursion give the same numbers.</figcaption></figure>
+
+<h2>4 · A local Bayesian view with three parameters</h2>
+<p>Around one anchor, the data add precision Γ = J<sup>T</sup>Σ<sup>−1</sup>J. Its eigenvectors are the
+combinations of (σ<sub>0</sub>, Q, β) that a test pins down or leaves loose; along mode i the posterior
+variance shrinks by 1/(1+λ<sub>i</sub>).</p>
+<div class="two">
+<figure><img src="img/tension_sensitivity.png" alt="Tension sensitivities"></figure>
+<figure><img src="img/fisher_modes.png" alt="Fisher eigenvalues and eigenvectors for tension and punch"></figure>
+</div>
+
+<h2>Where this leads</h2>
+<p>The same machinery can ask where in plastic-strain space, at each depth, the punch load is sensitive
+to the hardening law at all. A first look, work in progress:</p>
+<figure style="max-width:560px"><img src="img/teaser_kernel.png" alt="Sensitivity of punch load resolved in plastic strain"></figure>
+
+<p class="note">Generic material and geometry, small-strain teaching model built on core JAX. This page shares the write-up and figures only.</p>
+</main>
+</body>
+</html>
