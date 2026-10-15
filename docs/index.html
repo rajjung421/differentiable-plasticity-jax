@@ -30,7 +30,17 @@ figcaption{font-size:.85rem;color:var(--ink2);margin-top:6px}
 a{color:var(--accent)}
 code{font-size:.88em}
 .note{font-size:.9rem;color:var(--muted)}
+h3{font-size:1rem;margin:30px 0 6px}
+.key{border:1px solid var(--rule);border-radius:8px;background:var(--card);padding:12px 16px;margin:18px 0;font-size:.95rem}
+.keyh{font-family:Inter,system-ui,sans-serif;font-weight:600;font-size:.85rem;margin-bottom:6px}
+.key dl{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:0}
+.key dt{white-space:nowrap}.key dd{margin:0;color:var(--ink2)}
+@media (max-width:560px){.key dl{grid-template-columns:1fr}.key dd{margin-bottom:6px}}
+.steps li{margin-bottom:6px}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
 </style>
+<script>window.MathJax={svg:{fontCache:'global'}};</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 </head>
 <body>
 <main>
@@ -58,33 +68,129 @@ the textbook closed form to round-off.</p>
 <figure><img src="img/yield_surfaces.png" alt="Isotropic and kinematic hardening in the deviatoric plane"></figure>
 <figure><img src="img/uniaxial_curves.png" alt="Monotonic and cyclic uniaxial curves"></figure>
 </div>
-<figure><img src="img/fc5_local.png" alt="Return-map Jacobian rows and the local-stress-to-nodal-force chain">
-<figcaption>The local residual and the map from a local stress change to nodal force.</figcaption></figure>
 
-<h2>2 · The forward solve</h2>
-<p>Three residuals are coupled per increment: the local constitutive residual at every Gauss point,
-global equilibrium, and contact. Condensing the local solve gives the consistent tangent
-K = r<sub>U</sub> − r<sub>v</sub> h<sub>v</sub><sup>−1</sup> h<sub>U</sub>, the material's response to nodal motion.</p>
-<figure><img src="img/fc1_forward.png" alt="Forward solve flowchart with residuals and condensed tangent"></figure>
-<figure><img src="img/fc6_solve_readout.png" alt="Kinematics, constrained solve, state update and readout primitives">
-<figcaption>Strain map, constrained solve, back into the state, and the readout.</figcaption></figure>
-<div class="two">
-<figure><img src="img/punch_load.png" alt="Load–depth curves"><figcaption>Punch load for a generic material, and two parameter changes.</figcaption></figure>
-<figure><img src="img/fc4_jax.png" alt="Which JAX tool does which job"><figcaption>Which JAX tool does which job.</figcaption></figure>
+<h2>2 · The forward solve: one load increment at a time</h2>
+<p>The punch is pushed into the plate in small steps of depth \(d_1, d_2, \dots, d_N\). Each step
+(an <em>increment</em> \(k\)) is a full nonlinear solve: find the nodal displacements for which the plate is
+in equilibrium, every Gauss point satisfies the plasticity law, and the plate does not pass through the
+punch. Once that is found, the plastic state is stored (<em>committed</em>) and becomes the starting point
+for the next step. The punch load \(L_k\) is read off at the end of each step, which gives the load–depth curve.</p>
+
+<div class="key">
+<div class="keyh">Notation used in the charts</div>
+<dl>
+<dt>\(k\)</dt><dd>increment (load step), \(k=1,\dots,N\)</dd>
+<dt>\(U,\ \lambda\)</dt><dd>nodal displacements; contact pressure on the contact surface \(\Gamma_C\)</dd>
+<dt>\(x_g\)</dt><dd>a Gauss (integration) point, where the material law is evaluated</dd>
+<dt>\(v=(\sigma,\varepsilon^p,X,p)\)</dt><dd>unknowns at one Gauss point: stress, plastic strain, back-stress, accumulated plastic strain</dd>
+<dt>\(q=(\varepsilon^p,X,p)\)</dt><dd>the history: the part of \(v\) that is stored and carried to the next increment</dd>
+<dt>\(\theta=(\sigma_0,Q,\beta)\)</dt><dd>the hardening parameters we ask about</dd>
+<dt>\(h,\ r\)</dt><dd>local residual (material law at a Gauss point) and global residual (force balance)</dd>
+<dt>subscripts</dt><dd>partial derivatives: \(h_v=\partial h/\partial v\), \(r_U=\partial r/\partial U\), \(h_\theta=\partial h/\partial\theta\)</dd>
+<dt>\(B,\ K_k\)</dt><dd>strain–displacement matrix; the tangent stiffness of increment \(k\)</dd>
+<dt>\(L_k\)</dt><dd>punch load at increment \(k\) (the measurement)</dd>
+</dl>
 </div>
-<figure><img src="img/punch_fields.png" alt="Deformed plate coloured by plastic strain"></figure>
 
-<h2>3 · How a parameter change travels</h2>
-<p>A parameter enters only through the yield row at the plastic strain reached. It is <em>resisted</em> by
-the local block, <em>redistributed</em> by the same factorized tangent (one extra right-hand side),
-<em>carried</em> to later increments through the committed state, and <em>read out</em> as a load change.</p>
+<figure><img src="img/fc1_forward.png" alt="Forward solve flowchart with residuals and condensed tangent"></figure>
+<p><strong>Reading the flowchart (left, top to bottom).</strong> Impose the new depth \(d_k\), starting from the
+stored history \(q_{k-1}\). Check which nodes touch the ball. Compute the strain at every Gauss point from
+the current displacements. Assume the step is elastic (the <em>trial</em> stress); if the trial stress lies
+inside the yield surface (\(f^{\rm tr}\le 0\)) it is accepted, otherwise the return map pulls it back onto the
+surface and updates the plastic variables. Differentiate that converged local update to get the
+<em>consistent</em> tangent, assemble the global residual \(r_k\) and stiffness \(K_k\), and take a Newton step.
+Repeat until the residual is small, then commit the history and read the load.</p>
+<p><strong>The right side says the same thing in equations.</strong> Three sets of conditions must hold together:
+the material law at every Gauss point (\(h_k=0\)), force balance (\(r_k=0\)), and contact (gap
+\(g_N\ge0\), pressure \(\lambda_N\ge0\), and pressure only where the gap is closed). Newton linearizes all of
+them at once. The key step is the boxed formula: the local unknowns can be eliminated, so the material's
+whole response is folded into one matrix, \(K_k = r_U - r_v h_v^{-1} h_U\) ("how the nodes push back when
+moved, after the material has re-equilibrated"). That factorized \(K_k\) is reused, unchanged, for every
+derivative in Section 3.</p>
+
+<h3>Six building blocks</h3>
+<p>Everything in Section 3 is assembled from six small maps. Each panel below shows one of them as a
+pipeline: the input on the left, the output on the right, and the formula underneath.</p>
+<figure><img src="img/fc5_local.png" alt="Return-map Jacobian rows and the local-stress-to-nodal-force chain"></figure>
+<p><strong>\(h_v\), the local block.</strong> The five equations a Gauss point must satisfy in one step:
+stress from elastic strain, the flow rule, back-stress evolution, accumulation of plastic strain, and staying
+on the yield surface. Its Jacobian \(h_v\) is what the return map inverts. Note where things enter: the
+parameters \(\theta\) appear <em>only</em> in the last (yield) row, through \(\sigma_y(p;\theta)\); the strain
+enters only the stress row; the stored history enters only the three evolution rows.
+<strong>\(r_v\), local to global.</strong> A change in stress at a Gauss point becomes a nodal force by
+the usual finite-element route: multiply by \(B^\top\) (virtual work), weight by the Gauss volume, and add up
+over elements.</p>
+<figure><img src="img/fc6_solve_readout.png" alt="Kinematics, constrained solve, state update and readout"></figure>
+<p><strong>\(\nabla^s\) (top left)</strong> is the opposite direction: nodal displacement to strain at each
+Gauss point, through \(B\). <strong>\(E_k\) (top right)</strong> answers "given extra forces, how do the nodes
+move?": solve with the tangent \(K_k\), then project with \(\Pi_k\) so the plate still respects contact
+(without it the punch could pass through the plate). <strong>\(C_k,\ S_q\) (bottom left)</strong> turn a strain
+change back into a change of the stored history, using the same local inverse \(h_v^{-1}\); \(S_q\) just
+picks the history entries out of \(v\). <strong>Readout (bottom right)</strong>: of all the fields, only the
+contact pressure on the contact patch is measured; summing its normal part gives the single number
+\(\delta L_k\).</p>
+
+<div class="two">
+<figure><img src="img/punch_load.png" alt="Load–depth curves"><figcaption>Load–depth curve for a generic material, and two parameter changes.</figcaption></figure>
+<figure><img src="img/fc4_jax.png" alt="Which JAX tool does which job"><figcaption>How each step maps onto a JAX primitive.</figcaption></figure>
+</div>
+<figure><img src="img/punch_fields.png" alt="Deformed plate coloured by plastic strain"><figcaption>The deformed plate at the last increment, coloured by accumulated plastic strain.</figcaption></figure>
+
+<h2>3 · How a parameter change travels to the load</h2>
+<p>The question of this section: if \(\sigma_0\), \(Q\) or \(\beta\) is nudged by \(\delta\theta\), how much does the
+load at each depth change? The answer is the Jacobian \(J=\partial L/\partial\theta\) (one row per depth, one
+column per parameter). The charts show that computing it needs no new solver, only the building blocks
+above, reused in a fixed order.</p>
+
 <figure><img src="img/fc2_sensitivity.png" alt="Sensitivity equations and flow"></figure>
-<figure><img src="img/fc7_recursion.png" alt="Recursion over one increment and its unrolling">
-<figcaption>Every increment injects; the number of Φ boxes on a path is how old that injection is.</figcaption></figure>
+<p><strong>Four moves per increment</strong> (follow the blue boxes on the right).</p>
+<ol class="steps">
+<li><strong>Source.</strong> The parameters touch only the yield row (top-left box): a nudge to \(\theta\)
+shifts the yield stress at the plastic strain each Gauss point has reached. Elastic points feel nothing.</li>
+<li><strong>Pseudoload.</strong> That shift, plus whatever the earlier increments already changed in the
+history (\(s_{k-1}=\partial q_{k-1}/\partial\theta\)), is pushed through \(h_v^{-1}\) (the material
+<em>resists</em>) and \(r_v\) to become an equivalent set of nodal forces \(f_{H,k}\).
+The extra term \(f_{\Gamma,k}\) is the corresponding contribution from the contact rows.</li>
+<li><strong>Solve.</strong> Those forces are applied to the <em>same</em> factorized system as the forward
+Newton step: one extra right-hand side per parameter. This gives how the displacements and contact
+pressures move, \(U_{\theta,k}\) and \(\lambda_{\theta,k}\).</li>
+<li><strong>Carry and read out.</strong> Two things are kept: the new history sensitivity \(s_k\), which feeds
+the next increment (dashed loop), and the load sensitivity \(\partial L_k/\partial\theta\), read off the
+contact pressure.</li>
+</ol>
+
+<figure><img src="img/fc7_recursion.png" alt="Recursion over one increment and its unrolling"></figure>
+<p><strong>The same thing as a signal-flow diagram.</strong> (a) Per increment, the bookkeeping is linear:
+the new history sensitivity is the old one carried forward, plus what this increment injects,
+\(s_i=\Phi_i s_{i-1}+\Upsilon_i\,\delta\theta\). The load change is read from the history (\(\mathcal H_i\)) plus a
+direct part that needs no history (\(\mathcal D_i\)). Here \(\Upsilon\) = "inject", \(\Phi\) = "carry",
+\(\mathcal H\) = "read through the history", \(\mathcal D\) = "read directly".
+(b) Unrolling over increments: every increment injects something, and an injection made at step \(j\)
+reaches the load at step \(k\) only after being carried through \(k-1-j\) \(\Phi\) boxes (one path
+highlighted in blue). So the load at depth \(k\) is the sum of contributions of every earlier step, each
+weighted by how far it has been carried.</p>
+
+<figure style="max-width:760px"><img src="img/fc9_jacobian.png" alt="Factorized Jacobian"></figure>
+<p><strong>Stacking all increments</strong> turns those per-step boxes into four operators, and the full
+Jacobian factors as: inject (\(\mathcal G\)), propagate through history (\((\mathrm{Id}-\mathcal T)^{-1}\)),
+observe (\(\mathcal H\)), plus the direct part (\(\mathcal D\)). Because a step can only affect later steps,
+\(\mathcal T\) shifts information strictly forward in time, so the inverse is an exact finite sum: this is the
+unrolled picture above, written as one formula.</p>
+
 <figure><img src="img/fc8_engines.png" alt="State path and load path inside the operators"></figure>
-<figure><img src="img/fc9_jacobian.png" alt="Factorized Jacobian"></figure>
+<p><strong>What is inside \(\Upsilon,\Phi,\mathcal H,\mathcal D\).</strong> All four are the same chain of
+building blocks, fed by one of two sources: the parameter source \(h_\theta\) (blue) or the history source
+\(h_{q_{k-1}}\) (orange). The <em>commit</em> path (top) ends in the stored state: the local block resists the
+change, and what the rest of the plate gives back after re-equilibrating (\(r_v\to E_k\to\nabla^s\to C_k\)) is
+subtracted. Fed by \(h_\theta\) it is \(\Upsilon_k\), fed by the history it is \(\Phi_k\). The <em>exit</em>
+path (bottom) ends in the load instead, through the contact pressure; fed by \(h_\theta\) it is
+\(\mathcal D_k\), fed by the history it is \(\mathcal H_k\). The grey dashed branch only matters with friction and
+is zero in this frictionless model.</p>
+
 <figure><img src="img/punch_sensitivity.png" alt="Forward mode, adjoint, finite differences and hand recursion agree">
-<figcaption>Forward mode, adjoint, finite differences and the hand-written recursion give the same numbers.</figcaption></figure>
+<figcaption>Check: the recursion written out by hand, JAX forward mode, JAX reverse mode (adjoint) and finite
+differences give the same \(\theta_i\,\partial L/\partial\theta_i\) at every depth (the first three agree to about
+\(10^{-13}\), finite differences to about 2%).</figcaption></figure>
 
 <h2>4 · A local Bayesian view with three parameters</h2>
 <p>Around one anchor, the data add precision Γ = J<sup>T</sup>Σ<sup>−1</sup>J. Its eigenvectors are the
@@ -101,6 +207,8 @@ to the hardening law at all. A first look, work in progress:</p>
 <figure style="max-width:560px"><img src="img/teaser_kernel.png" alt="Sensitivity of punch load resolved in plastic strain"></figure>
 
 <p class="note">Generic material and geometry, small-strain teaching model built on core JAX. This page shares the write-up and figures only.</p>
+<p class="note">Click any figure to open it at full size.</p>
 </main>
+<script>document.querySelectorAll("figure img").forEach(function(i){i.style.cursor="zoom-in";i.addEventListener("click",function(){window.open(i.src,"_blank")})});</script>
 </body>
 </html>

@@ -2,9 +2,9 @@
 \input{style}
 \begin{document}
 \begin{tikzpicture}
-\node[anchor=north west, font=\small\bfseries] (h) at (0,0) {State recursion over increments};
-\node[below=2mm of h.south west, anchor=north west, font=\small, draw=line, rounded corners=2pt, inner sep=6pt] (r) {$s_k = A_k\,s_{k-1} + C_k\,\nabla^s U_{\theta,k} + b_k$};
-\node[below=8mm of r.south west, anchor=north west, font=\small\bfseries] (h2) {The assembled Jacobian, factor by factor};
+\node[anchor=north west, font=\small\bfseries] (h) at (0,0) {Per increment (from the recursion chart)};
+\node[below=2mm of h.south west, anchor=north west, font=\small, draw=line, rounded corners=2pt, inner sep=6pt] (r) {$s_k = \Phi_k\,s_{k-1} + \Upsilon_k\,\delta\theta,\qquad \delta L_k = \mathcal H_k\,s_{k-1} + \mathcal D_k\,\delta\theta$};
+\node[below=8mm of r.south west, anchor=north west, font=\small\bfseries] (h2) {Stack all increments: the assembled Jacobian, factor by factor};
 \node[below=3mm of h2.south west, anchor=north west, font=\normalsize] (J) {%
 $J \;=\; \underbrace{\mathcal D}_{\text{direct}} \;+\; \underbrace{\mathcal H}_{\text{observation}}\circ\underbrace{(\mathrm{Id}-\mathcal T)^{-1}}_{\text{history propagation}}\circ\underbrace{\mathcal G}_{\text{parameter injection}}$};
 \node[below=4mm of J.south west, anchor=north west, font=\small, align=left] (L) {%

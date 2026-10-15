@@ -4,7 +4,7 @@
 \begin{tikzpicture}
 \tikzset{s/.style={b=#1, minimum height=8mm}, s/.default=14mm}
 % (3) kinematics
-\node[anchor=north west, font=\small\bfseries] (t3) at (0,0) {(3)\ $\nabla^s$ \textmd{--- nodal displacement $\to$ Gauss strain}};
+\node[anchor=north west, font=\small\bfseries] (t3) at (0,0) {$\nabla^s$ \textmd{--- nodal displacement $\to$ Gauss strain}};
 \node[below=7mm of t3.south west, anchor=north west, font=\small, text=acc] (u3) {$\delta U$};
 \node[s, right=4mm of u3] (B) {$B$};
 \node[right=4mm of B, font=\small, text=acc] (e3) {$\delta\varepsilon$ at $x_g$};
@@ -13,7 +13,7 @@
 \node[below=12mm of u3.south west, anchor=north west, t, align=left, text width=70mm] {the transpose partner of $B_g^{\top}$ inside $r_v$: force out, strain back in. Together they are the only route between a Gauss point and the mesh.};
 % (4) constrained solve
 \begin{scope}[shift={(88mm,0)}]
-\node[anchor=north west, font=\small\bfseries] (t4) at (0,0) {(4)\ $E_k$ \textmd{--- the constrained solve}};
+\node[anchor=north west, font=\small\bfseries] (t4) at (0,0) {$E_k$ \textmd{--- the constrained solve}};
 \node[below=7mm of t4.south west, anchor=north west, font=\small, text=acc] (p4) {pseudoload};
 \node[s=15mm, right=4mm of p4] (Ki) {$K_k^{-1}$};
 \node[s=17mm, right=7mm of Ki] (Pi) {$I-\Pi_k$};
@@ -27,7 +27,7 @@ $\Pi_k = B_{1,k}^{\top}\big(B_{2,k}K_k^{-1}B_{1,k}^{\top}\big)^{-1}B_{2,k}K_k^{-
 \end{scope}
 % (5) back into the state
 \begin{scope}[shift={(0,-62mm)}]
-\node[anchor=north west, font=\small\bfseries] (t5) at (0,0) {(5)\ $C_k$, $S_q$ \textmd{--- back into the state}};
+\node[anchor=north west, font=\small\bfseries] (t5) at (0,0) {$C_k$, $S_q$ \textmd{--- back into the state}};
 \node[below=7mm of t5.south west, anchor=north west, font=\small, text=acc] (e5) {$\delta\varepsilon$};
 \node[s, right=4mm of e5] (he) {$h_\varepsilon$};
 \node[s, right=7mm of he] (hv) {$h_v^{-1}$};
@@ -40,7 +40,7 @@ $\Pi_k = B_{1,k}^{\top}\big(B_{2,k}K_k^{-1}B_{1,k}^{\top}\big)^{-1}B_{2,k}K_k^{-
 \end{scope}
 % (6) readout
 \begin{scope}[shift={(88mm,-62mm)}]
-\node[anchor=north west, font=\small\bfseries] (t6) at (0,0) {(6)\ $R_{\rm obs}$ \textmd{--- field $\to$ one number}};
+\node[anchor=north west, font=\small\bfseries] (t6) at (0,0) {$R_{\rm obs}$ \textmd{--- field $\to$ one number}};
 \node[below=7mm of t6.south west, anchor=north west, font=\small, text=acc] (u6) {$\delta U,\delta\lambda$};
 \node[s=15mm, right=4mm of u6] (gc) {on $\Gamma_C$};
 \node[s=15mm, right=7mm of gc] (nm) {normal};
