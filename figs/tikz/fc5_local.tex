@@ -3,7 +3,7 @@
 \begin{document}
 \begin{tikzpicture}
 % (1) local Jacobian
-\node[anchor=north west, font=\small\bfseries] (t1) at (0,0) {(1)\ $h_v$ \textmd{--- the return-map Jacobian}};
+\node[anchor=north west, font=\small\bfseries] (t1) at (0,0) {$h_v$ \textmd{--- the return-map Jacobian}};
 \node[below=2mm of t1.south west, anchor=north west, draw=line, rounded corners=2pt, inner sep=6pt, font=\small] (H) {%
 $\begin{aligned}
 h^{\sigma} &= \sigma_k - \mathbb C:(\varepsilon_k-\varepsilon^p_k)\\
@@ -19,7 +19,7 @@ $h_\theta$ is non-zero only in the yield row $h^f$ (isotropic parameters).\quad
 $h_\varepsilon=-\mathbb C$ in row $h^\sigma$.\quad $h_{q_{k-1}}=-I$ in rows $h^{\varepsilon^p}, h^X, h^p$.};
 % (2) r_v
 \begin{scope}[shift={(0,-62mm)}]
-\node[anchor=north west, font=\small\bfseries] (t2) at (0,0) {(2)\ $r_v$ \textmd{--- local stress change $\to$ nodal force}};
+\node[anchor=north west, font=\small\bfseries] (t2) at (0,0) {$r_v$ \textmd{--- local stress change $\to$ nodal force}};
 \node[below=6mm of t2.south west, anchor=north west, t] (x) {at $x_g$};
 \node[b=17mm, right=4mm of x, minimum height=8mm] (a1) {$\partial\sigma/\partial v$};
 \node[b=13mm, right=7mm of a1, minimum height=8mm] (a2) {$B_g^{\top}$};

@@ -4,6 +4,7 @@
 \usepackage{lmodern}
 \usepackage{amsmath,amssymb,bm}
 \usepackage{graphicx}
+\usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage[hidelinks]{hyperref}
 \usepackage{caption}
@@ -107,6 +108,33 @@ to round-off, and it needs no change for the combined model.
 %=====================================================================
 \section{The incremental finite-element problem}
 %=====================================================================
+The punch is pushed in small depth steps $d_1,\dots,d_N$. Each step (increment $k$) is a full nonlinear
+solve; once it converges the plastic history is stored (committed) and becomes the start of the next step,
+and the punch load $L_k$ is read off.
+
+\begin{center}\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+$k$ & increment (load step)\\
+$U,\ \lambda$ & nodal displacements; contact pressure on the contact surface $\Gamma_C$\\
+$x_g$ & a Gauss point, where the material law is evaluated\\
+$v=(\sigma,\varepsilon^p,X,p)$ & local unknowns: stress, plastic strain, back-stress, accumulated plastic strain\\
+$q=(\varepsilon^p,X,p)$ & history: the part of $v$ stored and carried to the next increment\\
+$\theta=(\sigma_0,Q,\beta)$ & hardening parameters\\
+$h,\ r$ & local residual (material law) and global residual (force balance)\\
+subscripts & partial derivatives, e.g.\ $h_v=\partial h/\partial v$, $r_U=\partial r/\partial U$\\
+$B,\ K_k$ & strain--displacement matrix; tangent stiffness of increment $k$\\
+$L_k$ & punch load at increment $k$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Reading Fig.~\ref{fig:forward}.} Down the left: impose $d_k$ from the stored history; update
+which nodes touch the ball; compute strain at every Gauss point; try an elastic step, and if the trial stress
+lies outside the yield surface pull it back with the return map; differentiate that converged update to get
+the consistent tangent; assemble $r_k$ and $K_k$, take a Newton step, and repeat until the residual is small;
+then commit and read the load. The right side states the same in equations.
+
 Per increment three residuals are coupled (Fig.~\ref{fig:forward}): the local constitutive residual
 $h_k$ at every Gauss point, global equilibrium $r_k$, and the contact conditions. Newton solves the
 linearized saddle problem; condensing the local solve into the global one gives the consistent tangent
@@ -123,6 +151,16 @@ The pieces map one-to-one onto JAX (Fig.~\ref{fig:jax}): the internal force is t
 strain map (\nb{jax.vjp}), the tangent is \nb{jax.jacfwd} of the residual, and the global Newton also sits
 in \nb{custom\_root}, so $\partial U/\partial(\cdot) = -K^{-1}\partial R/\partial(\cdot)$ is applied
 directly.
+
+\paragraph{Six building blocks (Figs.~\ref{fig:local} and \ref{fig:prims}).} Everything in the next section
+is assembled from six small maps, each drawn as a pipeline from input to output. $h_v$ is the local block:
+the five equations a Gauss point satisfies in one step. The parameters appear only in its yield row, the
+strain only in its stress row, and the stored history only in the three evolution rows. $r_v$ turns a local
+stress change into nodal force ($B^\top$, Gauss weight, assembly), and $\nabla^s$ is its partner in the other
+direction, nodal displacement to Gauss strain. $E_k$ answers ``given extra forces, how do the nodes move?'':
+solve with $K_k$, then project with $\Pi_k$ so contact is respected. $C_k$ turns a strain change into a change
+of stored history through the same $h_v^{-1}$ ($S_q$ only selects the history entries). The readout keeps only
+the normal contact pressure on the patch and sums it to the single number $\delta L_k$.
 
 \begin{figure}[p]\centering
 \includegraphics[width=\linewidth]{figs/tikz/fc1_forward.pdf}
@@ -146,6 +184,10 @@ directly.
 %=====================================================================
 \section{Linearizing the forward model}
 %=====================================================================
+The question: if $\sigma_0$, $Q$ or $\beta$ is nudged by $\delta\theta$, how much does the load at each depth
+change? The answer is $J=\partial L/\partial\theta$, one row per depth and one column per parameter. No new
+solver is needed; the building blocks above are reused in a fixed order.
+
 A parameter change enters in one place: the yield row, evaluated at the plastic strain reached at each
 plastic Gauss point,
 \begin{equation}
@@ -169,6 +211,21 @@ Jacobian factors as
 a finite Neumann series because the history transfer $\mathcal T$ is strictly causal (Fig.~\ref{fig:jac}).
 Inside each operator the same two paths appear, one ending in the state and one in the load
 (Fig.~\ref{fig:engines}).
+
+\paragraph{Reading the charts.} In Fig.~\ref{fig:sens} follow the blue boxes: the parameter shifts the yield
+stress at each plastic point (elastic points feel nothing); together with the history change carried from
+earlier steps, $s_{k-1}=\partial q_{k-1}/\partial\theta$, this becomes an equivalent nodal force $f_{H,k}$ ($f_{\Gamma,k}$
+is the matching contribution of the contact rows); that force is solved with the already factorized system;
+the result is split into the new history sensitivity $s_k$, which feeds the next step, and the load
+sensitivity. Fig.~\ref{fig:rec} is the same bookkeeping as a signal-flow diagram: $\Upsilon$ injects, $\Phi$
+carries, $\mathcal H$ reads through the history and $\mathcal D$ reads directly. Unrolled, an injection made at
+step $j$ reaches the load at step $k$ only after $k-1-j$ carries, so each depth's load sensitivity sums the
+contributions of all earlier steps. Fig.~\ref{fig:jac} stacks the increments into operators, and since a
+step can only affect later ones, $(\mathrm{Id}-\mathcal T)^{-1}$ is an exact finite sum. Fig.~\ref{fig:engines}
+opens the four boxes: all are the same chain of building blocks fed either by the parameter source $h_\theta$
+(blue: $\Upsilon_k$, $\mathcal D_k$) or the history source $h_{q_{k-1}}$ (orange: $\Phi_k$, $\mathcal H_k$). The commit
+path ends in the stored state, minus what re-equilibration of the plate gives back; the exit path ends in the
+load through the contact pressure. The dashed branch matters only with friction and is zero here.
 
 \paragraph{Direct or adjoint.} Direct evaluation fills $J$ column by column (one extra solve per
 parameter per increment); adjoint fills it row by row (one backward sweep per output). With three
