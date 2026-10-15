@@ -1,0 +1,18 @@
+_planning/
+PLAN.md
+__pycache__/
+.ipynb_checkpoints/
+*.aux
+*.log
+*.out
+*.toc
+figs/tikz/*.pdf
+!figs/tikz/style.tex
+
+# code stays private
+dpjax/
+tools/
+*.ipynb
+docs/0*.html
+requirements.txt
+publish.sh

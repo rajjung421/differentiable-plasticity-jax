@@ -1,0 +1,13 @@
+\documentclass[tikz,border=8pt]{standalone}
+\input{style}
+\begin{document}
+\begin{tikzpicture}[node distance=7mm]
+\node[a=24mm] (a) {Hardening law\\[1pt] $\sigma_y(p;\theta)$};
+\node[b=24mm, right=of a] (b) {Local plastic\\ response};
+\node[b=24mm, right=of b] (c) {Equilibrium\\ and contact};
+\node[b=24mm, right=of c] (d) {Loading\\ history};
+\node[a=24mm, right=of d] (e) {Measured load\\[1pt] $F(d)$};
+\draw[ea] (a) -- (b); \draw[ea] (b) -- (c); \draw[ea] (c) -- (d); \draw[ea] (d) -- (e);
+\node[t, below=4mm of c] {the test sees the law only after every stage in between};
+\end{tikzpicture}
+\end{document}

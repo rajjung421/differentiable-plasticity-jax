@@ -1,0 +1,21 @@
+\documentclass[tikz,border=8pt]{standalone}
+\input{style}
+\begin{document}
+\begin{tikzpicture}
+\newcommand{\row}[3]{%
+  \node[anchor=east, font=\small] at (0,-0.75*#1) {#2};
+  \node[anchor=west, font=\ttfamily\small, text=acc] at (0.8,-0.75*#1) {jax.#3};
+  \draw[line, line width=0.4pt] (-6.2,-0.75*#1-0.375) -- (5.2,-0.75*#1-0.375);}
+\row{0}{Every Gauss point}{vmap}
+\row{1}{Plastic multiplier $\Delta\gamma$}{lax.custom\_root}
+\row{2}{Consistent tangent $K$}{jacfwd(residual)}
+\row{3}{Internal force $B^{\top}\sigma$}{vjp(strain)}
+\row{4}{Global Newton}{lax.custom\_root}
+\row{5}{Load increments}{lax.scan}
+\row{6}{$dF/d\theta$, one pass per parameter}{jacfwd}
+\row{7}{$dF/d\theta$, one pass per output}{jacrev}
+\node[anchor=east, t] at (0,0.6) {step};
+\node[anchor=west, t] at (0.8,0.6) {JAX tool};
+\draw[ink, line width=0.6pt] (-6.2,0.375) -- (5.2,0.375);
+\end{tikzpicture}
+\end{document}
