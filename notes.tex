@@ -60,8 +60,12 @@ With $s=\dev\sigma$, back stress $X$ and accumulated plastic strain $p$,
   \dot X &= \tfrac23 C\,\dot\varepsilon^p - \gamma_k\,\dot p\,X &&\text{(Armstrong--Frederick, kinematic)}.
 \end{align}
 Isotropic hardening grows the elastic domain; kinematic hardening moves it (Fig.~\ref{fig:yield}).
-Under a load reversal the second gives early reverse yielding, the Bauschinger effect
-(Fig.~\ref{fig:uniaxial}). Positivity of $\sigma_y(0)$ and $\sigma_y'\ge 0$ keep the incremental
+In monotonic tension the backstress saturates as $X=\tfrac{C}{\gamma_k}(1-e^{-\gamma_k p})$ and adds to the
+yield stress like a second Voce term. With $\gamma_k=\beta$ the sum is again a Voce law, so the material
+$(\sigma_0,Q,\beta;C,\gamma_k)$ has an \emph{isotropic twin} $(\sigma_0,\,Q+C/\gamma_k,\,\beta)$ without backstress
+and with the same tensile curve. The two can only be told apart once the load reverses: the combined model
+yields early in the reverse direction (the Bauschinger effect), the twin does not
+(Fig.~\ref{fig:uniaxial}). A tension test alone cannot separate them. Positivity of $\sigma_y(0)$ and $\sigma_y'\ge 0$ keep the incremental
 problem well posed. In tabulated form (as in commercial codes) $\sigma_y$ is simply a function of $p$;
 here we use the three-parameter Voce chart $\theta=(\sigma_0,Q,\beta)$.
 
@@ -71,7 +75,10 @@ here we use the three-parameter Voce chart $\theta=(\sigma_0,Q,\beta)$.
 \end{figure}
 \begin{figure}[h]\centering
 \includegraphics[width=0.85\linewidth]{figs/uniaxial_curves.png}
-\caption{Monotonic tension and one strain cycle for pure Voce and for Voce + Armstrong--Frederick.}\label{fig:uniaxial}
+\caption{A combined-hardening material ($\sigma_0=250$, $Q=100$\,MPa, $\beta=\gamma_k=15$, $C/\gamma_k=200$\,MPa)
+and its isotropic twin ($Q=300$\,MPa, no backstress). Left: monotonic tension, identical curves. Right: three
+cycles at $\pm2\%$; the combined model yields early on every reversal, the twin crosses its whole elastic range
+and keeps growing.}\label{fig:uniaxial}
 \end{figure}
 
 %=====================================================================
@@ -250,7 +257,12 @@ hand-written direct recursion, against each other (Fig.~\ref{fig:sensnum}).
 \end{figure}
 \begin{figure}[h]\centering
 \includegraphics[width=\linewidth]{figs/punch_sensitivity.png}
-\caption{$\theta_i\,\partial L/\partial\theta_i$ for the punch: forward mode, adjoint, finite differences and the hand-written recursion agree.}\label{fig:sensnum}
+\caption{$\theta_i\,\partial L/\partial\theta_i$ for the punch: forward mode, adjoint, finite differences and the
+hand-written recursion agree. The small wiggles are part of the discrete model, not numerical noise: finite
+differences reproduce them, and four times smaller load steps make them sharper rather than smoother. They come
+from the coarse spatial discretization: each time another top-surface node comes into contact with the punch, or
+the plastic zone spreads to another Gauss point, the load--depth response changes slope. A longer contact smoothing
+length removes them, but on this mesh it shifts the load by up to 20\,\%, so the exact contact is kept.}\label{fig:sensnum}
 \end{figure}
 
 %=====================================================================
@@ -283,8 +295,9 @@ constants'' but ``where in plastic-strain space, at each depth, is the load sens
 law at all''. Figure~\ref{fig:teaser} is a first look (work in progress).
 
 \begin{figure}[h]\centering
-\includegraphics[width=0.62\linewidth]{figs/teaser_kernel.png}
-\caption{Work in progress: sensitivity of the punch load to the hardening law, resolved in plastic strain, with the kernel-weighted mean strain.}\label{fig:teaser}
+\includegraphics[width=0.5\linewidth]{figs/teaser_kernel_v2.png}
+\caption{Work in progress: how strongly the punch load at depth $d$ depends on the hardening curve at strain
+$\xi$ (darker = stronger). The black line is the largest plastic strain reached in the disc at that depth.}\label{fig:teaser}
 \end{figure}
 
 \section*{References}

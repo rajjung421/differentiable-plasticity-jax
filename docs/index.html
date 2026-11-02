@@ -37,6 +37,15 @@ h3{font-size:1rem;margin:30px 0 6px}
 .key dt{white-space:nowrap}.key dd{margin:0;color:var(--ink2)}
 @media (max-width:560px){.key dl{grid-template-columns:1fr}.key dd{margin-bottom:6px}}
 .steps li{margin-bottom:6px}
+.hero{margin:26px 0 8px}
+.hero img{width:100%;border:1px solid var(--rule);border-radius:8px;background:#fff}
+.toc{font-family:Inter,system-ui,sans-serif;font-size:.9rem;columns:2;column-gap:28px;margin:18px 0 6px;padding:0;list-style:none}
+.toc li{margin:2px 0}.toc a{text-decoration:none}
+table.spec{border-collapse:collapse;width:100%;font-size:.88rem;margin:14px 0;font-family:Inter,system-ui,sans-serif}
+table.spec td{border-top:1px solid var(--rule);padding:6px 8px;vertical-align:top}
+table.spec td:first-child{white-space:nowrap;font-weight:600;width:24%}
+figure.anim img{padding:0}
+@media (max-width:700px){.toc{columns:1}}
 mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
 </style>
 <script>window.MathJax={svg:{fontCache:'global'}};</script>
@@ -49,27 +58,71 @@ mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
 
 <p class="lede">A mechanical test never measures the hardening law. It measures the law after it has
 passed through the local plastic response, equilibrium with contact, the loading history and the readout.
-These notes build a small, fully differentiable punch-test model in JAX and follow, step by step, how
-information about the law travels to the measured load, and how its derivatives are computed exactly.</p>
+These notes build a fully differentiable small punch test (SPT) model in JAX, follow how information about the
+law travels to the measured load, and compute its derivatives exactly.</p>
+
+<figure class="hero anim"><img src="anim/punch_ss316.gif" alt="Animation: a spherical punch pressing a clamped disc, coloured by accumulated plastic strain, with the load-depth curve traced alongside">
+<figcaption>The JAX solver on a load–unload path to 1 mm (SS316, literature combined-hardening parameters; 2952 F-bar elements, 180 increments).
+Left: the axisymmetric disc, mirrored about the axis, between the dies, coloured by accumulated plastic strain.
+Right: the punch load being traced. Every frame is one converged increment, and every one of them is differentiable
+with respect to the material parameters.</figcaption></figure>
 
 <div class="btns">
   <a class="btn" href="notes.pdf">Read the notes (PDF)</a>
 </div>
 
+<ul class="toc">
+<li><a href="#model">0 · What is in the model</a></li>
+<li><a href="#hardening">1 · Isotropic and kinematic hardening</a></li>
+<li><a href="#forward">2 · The forward solve</a></li>
+<li><a href="#abaqus">3 · Checked against Abaqus</a></li>
+<li><a href="#sens">4 · How a parameter change travels to the load</a></li>
+<li><a href="#bayes">5 · A local Bayesian view</a></li>
+<li><a href="#kin">6 · What the backstress does inside the punch</a></li>
+<li><a href="#next">Where this leads</a></li>
+</ul>
+
 <figure><img src="img/fc3_chain.png" alt="Chain from hardening law through local response, equilibrium and contact, history to measured load">
 <figcaption>The test sees the law only after every stage in between.</figcaption></figure>
 
-<h2>1 · J<sub>2</sub> plasticity with combined hardening</h2>
-<p>Voce isotropic hardening grows the elastic domain; Armstrong–Frederick kinematic hardening moves it.
-The backward-Euler return map reduces to one scalar equation for the plastic multiplier, solved inside
-<code>jax.lax.custom_root</code>, so the consistent tangent is a single <code>jax.jacfwd</code>. It matches
-the textbook closed form to round-off.</p>
-<div class="two">
-<figure><img src="img/yield_surfaces.png" alt="Isotropic and kinematic hardening in the deviatoric plane"></figure>
-<figure><img src="img/uniaxial_curves.png" alt="Monotonic and cyclic uniaxial curves"></figure>
-</div>
+<h2 id="model">0 · What is in the model</h2>
+<p>Everything below is plain JAX, with no external FE code inside the loop. The whole simulation, from the material
+parameters to the punch load and the bottom-face displacements, is one differentiable program.</p>
+<table class="spec">
+<tr><td>Geometry</td><td>axisymmetric disc (about 0.5 mm thick, 4 mm die aperture), spherical punch of radius 1.2 mm, upper and lower dies with fillets</td></tr>
+<tr><td>Kinematics</td><td>finite strain, total Lagrangian; F-bar quadrilaterals against volumetric locking; mesh refined under the punch</td></tr>
+<tr><td>Isotropic hardening</td><td>Voce, \(\sigma_y(p)=\sigma_0+Q\,(1-e^{-\beta p})\)</td></tr>
+<tr><td>Kinematic hardening</td><td>Chaboche: a sum of Armstrong–Frederick backstresses, carried with an objective (Jaumann or Green–Naghdi) rate</td></tr>
+<tr><td>Local update</td><td>backward-Euler radial return, solved inside <code>jax.lax.custom_root</code>; the consistent tangent comes from implicit differentiation</td></tr>
+<tr><td>Contact</td><td>penalty contact with the punch and both dies; frictionless by default, Coulomb friction optional</td></tr>
+<tr><td>Global solve</td><td>Newton with the condensed tangent; a block-tridiagonal (block-Thomas) linear solve that exploits the banded mesh</td></tr>
+<tr><td>Derivatives</td><td>forward mode (one tangent per parameter) and reverse mode (adjoint) through every increment; a <code>custom_jvp</code> on the Newton solve, so derivatives never differentiate the iterations</td></tr>
+<tr><td>Checks</td><td>closed-form uniaxial solutions; Abaqus/Standard on an identical mesh (Section 3); finite differences</td></tr>
+</table>
 
-<h2>2 · The forward solve: one load increment at a time</h2>
+<h2 id="hardening">1 · Isotropic and kinematic hardening</h2>
+<p>A metal can get stronger in two ways. <strong>Isotropic</strong> hardening (Voce) grows the elastic domain
+equally in every direction. <strong>Kinematic</strong> hardening (Armstrong–Frederick, Chaboche) moves it: a
+backstress \(\alpha\) shifts the centre of the yield surface towards the direction of loading. In tension alone the
+two can be made to give exactly the same curve. The difference appears only when the loading turns. After
+tension, the shifted surface reaches the compression side early (the Bauschinger effect); the grown one does not.</p>
+<figure class="anim"><img src="anim/yield_surface.gif" alt="Animation: uniaxial tension then reversal; combined hardening versus its isotropic twin, with the yield surface in the deviatoric plane">
+<figcaption>Tension to 5 %, then reversal. Blue: combined hardening (Voce + one backstress). Grey dashed: its
+<em>isotropic twin</em>, which has the same tensile curve, all of it from isotropic growth. Right: the yield surface
+in the deviatoric plane. The blue surface grows a little and slides (the arrow is the backstress); the grey one
+only grows. On reversal the blue curve yields early in compression; the grey one must cross the full diameter
+first. Generic, illustrative parameters.</figcaption></figure>
+<p>In the solver, the backward-Euler return map collapses to one scalar equation for the plastic multiplier. That
+equation is solved inside <code>jax.lax.custom_root</code>, so the consistent tangent is a single
+<code>jax.jacfwd</code>. It matches the textbook closed form to round-off.</p>
+<figure><img src="img/uniaxial_twin.png" alt="Combined hardening and its isotropic twin: identical in monotonic tension, different under cycling">
+<figcaption>The same pair as in the animation. Left: in monotonic tension the two curves coincide; the twin is
+built so that its isotropic hardening equals the combined model's isotropic part plus the saturating backstress.
+Right: three cycles at ±2 %. The combined model yields early on every reversal and gives the rounded
+Bauschinger loop. The twin must cross its whole elastic range on each reversal, and its surface keeps growing from
+cycle to cycle. A tension test alone cannot tell these two materials apart.</figcaption></figure>
+
+<h2 id="forward">2 · The forward solve: one load increment at a time</h2>
 <p>The punch is pushed into the plate in small steps of depth \(d_1, d_2, \dots, d_N\). Each step
 (an <em>increment</em> \(k\)) is a full nonlinear solve: find the nodal displacements for which the plate is
 in equilibrium, every Gauss point satisfies the plasticity law, and the plate does not pass through the
@@ -106,10 +159,10 @@ the material law at every Gauss point (\(h_k=0\)), force balance (\(r_k=0\)), an
 them at once. The key step is the boxed formula: the local unknowns can be eliminated, so the material's
 whole response is folded into one matrix, \(K_k = r_U - r_v h_v^{-1} h_U\) ("how the nodes push back when
 moved, after the material has re-equilibrated"). That factorized \(K_k\) is reused, unchanged, for every
-derivative in Section 3.</p>
+derivative in Section 4.</p>
 
 <h3>Six building blocks</h3>
-<p>Everything in Section 3 is assembled from six small maps. Each panel below shows one of them as a
+<p>Everything in Section 4 is assembled from six small maps. Each panel below shows one of them as a
 pipeline: the input on the left, the output on the right, and the formula underneath.</p>
 <figure><img src="img/fc5_local.png" alt="Return-map Jacobian rows and the local-stress-to-nodal-force chain"></figure>
 <p><strong>\(h_v\), the local block.</strong> The five equations a Gauss point must satisfy in one step:
@@ -134,9 +187,29 @@ contact pressure on the contact patch is measured; summing its normal part gives
 <figure><img src="img/punch_load.png" alt="Load–depth curves"><figcaption>Load–depth curve for a generic material, and two parameter changes.</figcaption></figure>
 <figure><img src="img/fc4_jax.png" alt="Which JAX tool does which job"><figcaption>How each step maps onto a JAX primitive.</figcaption></figure>
 </div>
-<figure><img src="img/punch_fields.png" alt="Deformed plate coloured by plastic strain"><figcaption>The deformed plate at the last increment, coloured by accumulated plastic strain.</figcaption></figure>
 
-<h2>3 · How a parameter change travels to the load</h2>
+
+<h2 id="abaqus">3 · Checked against Abaqus</h2>
+<p>A differentiable solver is only useful if its forward answer is right. The JAX model was run against
+Abaqus/Standard with its built-in combined hardening (<code>*Plastic, hardening=COMBINED</code> with
+<code>*Cyclic Hardening</code>) on an identical mesh, for three parameter sets. Two things are compared: the
+punch force, and the backstress in every element.</p>
+<figure><img src="img/kin_abaqus_monotonic.png" alt="Punch force and per-element backstress, JAX versus Abaqus, for three parameter sets">
+<figcaption>Left: punch force, JAX (lines) against Abaqus (circles); the relative difference is on the right axis.
+After the first few increments it stays within about 1 %, the same level as the pure Voce model on this mesh
+(−0.5 % to −0.6 % at 1 mm). Right: the deviatoric backstress in every element at 1 mm, JAX against Abaqus; the
+points fall on the 1:1 line for both objective rates. Abaqus integrates the Ziegler form, so only the deviatoric
+part of its ALPHA is compared.</figcaption></figure>
+<p>Kinematic hardening shows itself mainly when the load reverses, so the stronger test is unloading. The same
+comparison on a cyclic path (two partial unload–reload loops and a final unload) is shown below, for the
+combined model and for its isotropic twin.</p>
+<figure><img src="img/kin_abaqus_unload.png" alt="Cyclic punch test, JAX versus Abaqus, combined hardening and isotropic twin">
+<figcaption>Left: the full cyclic path. Middle: the unload–reload loop at 0.7 mm. Right: the final unload and
+springback. JAX follows Abaqus through the loops and the loss of contact. One practical lesson: unloading needs a
+stiffer contact penalty than loading (10<sup>7</sup> instead of 10<sup>6</sup> N/mm<sup>3</sup>). The softer value
+under-predicts the loop hysteresis by about a quarter.</figcaption></figure>
+
+<h2 id="sens">4 · How a parameter change travels to the load</h2>
 <p>The question of this section: if \(\sigma_0\), \(Q\) or \(\beta\) is nudged by \(\delta\theta\), how much does the
 load at each depth change? The answer is the Jacobian \(J=\partial L/\partial\theta\) (one row per depth, one
 column per parameter). The charts show that computing it needs no new solver, only the building blocks
@@ -190,9 +263,12 @@ is zero in this frictionless model.</p>
 <figure><img src="img/punch_sensitivity.png" alt="Forward mode, adjoint, finite differences and hand recursion agree">
 <figcaption>Check: the recursion written out by hand, JAX forward mode, JAX reverse mode (adjoint) and finite
 differences give the same \(\theta_i\,\partial L/\partial\theta_i\) at every depth (the first three agree to about
-\(10^{-13}\), finite differences to about 2%).</figcaption></figure>
+\(10^{-13}\), finite differences to about 2%). The small wiggles are real features of the discrete model, not noise:
+finite differences reproduce them, and smaller load steps make them sharper rather than smoother. They come from the
+coarse teaching mesh: each time another surface node touches the ball, or the plastic zone reaches another Gauss
+point, the response changes slope.</figcaption></figure>
 
-<h2>4 · A local Bayesian view with three parameters</h2>
+<h2 id="bayes">5 · A local Bayesian view with three parameters</h2>
 <p>Around one anchor, the data add precision Γ = J<sup>T</sup>Σ<sup>−1</sup>J. Its eigenvectors are the
 combinations of (σ<sub>0</sub>, Q, β) that a test pins down or leaves loose; along mode i the posterior
 variance shrinks by 1/(1+λ<sub>i</sub>).</p>
@@ -201,12 +277,31 @@ variance shrinks by 1/(1+λ<sub>i</sub>).</p>
 <figure><img src="img/fisher_modes.png" alt="Fisher eigenvalues and eigenvectors for tension and punch"></figure>
 </div>
 
-<h2>Where this leads</h2>
-<p>The same machinery can ask where in plastic-strain space, at each depth, the punch load is sensitive
-to the hardening law at all. A first look, work in progress:</p>
-<figure style="max-width:560px"><img src="img/teaser_kernel.png" alt="Sensitivity of punch load resolved in plastic strain"></figure>
+<h2 id="kin">6 · What the backstress does inside the punch</h2>
+<p>In a tensile bar the loading direction never changes, so a backstress and an equal amount of isotropic hardening
+cannot be told apart. In the punch test the disc bends, stretches and wraps around the ball, so the direction in
+which each point flows turns as the punch goes in. Wherever it turns, the backstress, built up along the old
+direction, is no longer aligned with the stress. The <em>kinematic angle</em> \(\varphi\) measures this: it is the
+angle between the deviatoric stress \(s\) and the flow direction \(\hat n\propto s-\alpha\). With isotropic
+hardening alone, \(\varphi=0\) everywhere.</p>
+<figure><img src="img/kin_angle_maps.png" alt="Maps of the kinematic angle over the deformed disc at four punch depths">
+<figcaption>The kinematic angle at the points that are flowing, at four depths (SS316, literature parameters;
+hatched = not flowing at that instant). It concentrates under the punch early on, where the material first bends
+and is then stretched over the ball, and later in a band towards the die edge. Elsewhere it stays at a few
+degrees: during loading, the punch test is mostly a <em>monotonic</em> test.</figcaption></figure>
+<p>This is why the backstress is hard to see in the force curve during loading. It shows mostly on unloading and
+reloading (Section 3), and in the full-field (DIC) displacement of the bottom face, which the solver also produces
+and differentiates.</p>
 
-<p class="note">Generic material and geometry, small-strain teaching model built on core JAX. This page shares the write-up and figures only.</p>
+<h2 id="next">Where this leads</h2>
+<p>The same machinery can ask a sharper question: at each punch depth, <em>which part of the hardening curve</em> does
+the load actually respond to? Instead of three Voce parameters, the hardening law is treated as a whole function of
+plastic strain, and the derivatives above are resolved along that strain axis. A first look:</p>
+<figure style="max-width:520px"><img src="img/teaser_kernel_v2.png" alt="Sensitivity of the punch load resolved over plastic strain and punch depth">
+<figcaption>How strongly the punch load at depth \(d\) depends on the hardening curve at strain \(\xi\) (darker =
+stronger). The black line is the largest strain reached anywhere in the disc at that depth. Work in progress.</figcaption></figure>
+
+<p class="note">Sections 2, 4 and 5 use the small-strain teaching model of the notes (generic material). The animations and Sections 3 and 6 use the full finite-strain solver. This page shares the write-up and figures only.</p>
 <p class="note">Click any figure to open it at full size.</p>
 </main>
 <script>document.querySelectorAll("figure img").forEach(function(i){i.style.cursor="zoom-in";i.addEventListener("click",function(){window.open(i.src,"_blank")})});</script>
